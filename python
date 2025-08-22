@@ -1,0 +1,52 @@
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import pytube
+import yt_dlp
+import sqlite3
+import os
+
+# Настройки
+bot = Bot(token="YOUR_BOT_TOKEN")
+dp = Dispatcher()
+DB_NAME = "users.db"
+
+# Проверка подписки
+async def is_subscribed(user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member("@it_start", user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+# БД для лимитов
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS users (user_id INT, downloads INT, last_date TEXT)")
+    conn.commit()
+    conn.close()
+
+# Обработчик /start
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    if await is_subscribed(message.from_user.id):
+        await message.answer("Отправьте ссылку на видео!")
+    else:
+        await message.answer("❌ Подпишитесь на @it_start для доступа к боту!")
+
+# Загрузка видео
+@dp.message(F.text)
+async def download_video(message: types.Message):
+    url = message.text
+    buttons = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1080p", callback_data="quality_1080")],
+        [InlineKeyboardButton(text="2K", callback_data="quality_1440")],
+        [InlineKeyboardButton(text="4K", callback_data="quality_2160")]
+    ])
+    await message.answer("Выберите качество:", reply_markup=buttons)
+
+# Запуск бота
+if __name__ == "__main__":
+    init_db()
+    dp.run_polling(bot)
