@@ -1,0 +1,19 @@
+# Секретные файлы
+.env
+.env.local
+
+# Папка с загрузками
+downloads/
+
+# Файлы Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Виртуальное окружение
+venv/
+env/
+
+# Файлы IDE
+.vscode/
+.idea/
