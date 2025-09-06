@@ -1,73 +1,133 @@
-def get_available_heights(url: str) -> Set[int]:
-    """Get available video heights from URL"""
-    options = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "nocheckcertificate": True,
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
-        # Убираем cookies чтобы избежать ошибок
-    }
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    CallbackContext
+)
+import config
+import utils
+import os
+import re
+
+# Проверка URL
+def is_valid_url(url: str) -> bool:
+    patterns = [
+        r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+',
+        r'(https?://)?(www\.)?tiktok\.com/.+',
+        r'(https?://)?(www\.)?instagram\.com/.+',
+        r'(https?://)?(www\.)?vk\.com/.+',
+        r'(https?://)?(www\.)?dailymotion\.com/.+',
+        r'(https?://)?(www\.)?vimeo\.com/.+'
+    ]
+    return any(re.match(pattern, url) for pattern in patterns)
+
+# Команда /start
+async def start(update: Update, context: CallbackContext):
+    user = update.effective_user
+    if await utils.check_subscription(user.id, context):
+        await update.message.reply_text(
+            "🎬 <b>Добро пожаловать в видео-бот!</b>\n\n"
+            "Отправьте ссылку на видео с одной из поддерживаемых платформ:\n"
+            "YouTube, TikTok, Instagram, VK, Dailymotion, Vimeo",
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(
+            "📢 <b>Для использования бота подпишитесь на наши каналы:</b>",
+            reply_markup=utils.subscription_keyboard(),
+            parse_mode="HTML"
+        )
+
+# Проверка подписки
+async def check_subscription_callback(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    
+    if await utils.check_subscription(query.from_user.id, context):
+        await query.edit_message_text(
+            "✅ <b>Подписка подтверждена!</b>\n\n"
+            "Отправьте ссылку на видео:",
+            parse_mode="HTML"
+        )
+    else:
+        await query.answer("❌ Вы подписаны не на все каналы!", show_alert=True)
+
+# Обработка текстовых сообщений
+async def handle_message(update: Update, context: CallbackContext):
+    user = update.effective_user
+    text = update.message.text
+    
+    if not await utils.check_subscription(user.id, context):
+        await update.message.reply_text(
+            "❌ <b>Доступ запрещен!</b>\n\n"
+            "Подпишитесь на все каналы для использования бота:",
+            reply_markup=utils.subscription_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+    
+    if is_valid_url(text):
+        await update.message.reply_text(
+            "🎬 <b>Выберите качество видео:</b>",
+            reply_markup=utils.quality_keyboard(text),
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(
+            "⚠️ <b>Неверная ссылка!</b>\n\n"
+            "Поддерживаемые платформы:\n"
+            "YouTube, TikTok, Instagram, VK, Dailymotion, Vimeo",
+            parse_mode="HTML"
+        )
+
+# Обработка выбора качества
+async def handle_quality_choice(update: Update, context: CallbackContext):
+    query = update.callback_query
+    data = query.data.split("_")
+    quality = data[1]
+    url = "_".join(data[2:])
+    
+    # Повторная проверка подписки
+    if not await utils.check_subscription(query.from_user.id, context):
+        await query.answer("❌ Вы отписались от каналов!", show_alert=True)
+        return
+    
+    await query.answer("⏳ Начинаю загрузку...")
+    await query.edit_message_text(f"🔄 <b>Скачиваю видео в {quality}p...</b>", parse_mode="HTML")
     
     try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
-            formats = info.get("formats") or []
-            available_heights = set()
-            
-            for fmt in formats:
-                if fmt.get("vcodec") in (None, "none"):
-                    continue
-                height = fmt.get("height")
-                if isinstance(height, int):
-                    available_heights.add(height)
-            
-            # Only expose common targets
-            return {h for h in available_heights if h in {720, 1080, 1440, 2160}}
+        file_path = utils.download_video(url, quality)
+        
+        if os.path.getsize(file_path) > config.MAX_FILE_SIZE:
+            raise ValueError("Файл превышает 50MB")
+        
+        await context.bot.send_video(
+            chat_id=query.message.chat_id,
+            video=open(file_path, "rb"),
+            caption=f"✅ Видео {quality}p успешно скачано!",
+            supports_streaming=True
+        )
+        os.remove(file_path)
+        
     except Exception as e:
-        logger.error(f"Error extracting video info: {e}")
-        # Fallback to basic formats
-        return {720, 1080}
+        error_msg = f"❌ Ошибка: {str(e)}"
+        await query.edit_message_text(error_msg)
 
-->
-
-def get_available_heights(url: str) -> Set[int]:
-    """Get available video heights from URL"""
-    options = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "nocheckcertificate": True,
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
-        "format": "best[height<=2160]/best",
-        "no_color": True,
-        "ignoreerrors": True,
-    }
+# Основная функция
+def main():
+    app = Application.builder().token(config.TOKEN).build()
     
-    try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                logger.error("Failed to extract video info")
-                return {720, 1080}
-                
-            formats = info.get("formats") or []
-            available_heights = set()
-            
-            for fmt in formats:
-                if fmt.get("vcodec") in (None, "none"):
-                    continue
-                height = fmt.get("height")
-                if isinstance(height, int):
-                    available_heights.add(height)
-            
-            # Only expose common targets
-            result = {h for h in available_heights if h in {720, 1080, 1440, 2160}}
-            if not result:
-                logger.warning("No common heights found, using fallback")
-                return {720, 1080}
-            return result
-    except Exception as e:
-        logger.error(f"Error extracting video info: {e}")
-        # Fallback to basic formats
-        return {720, 1080}
+    # Обработчики
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
+    app.add_handler(CallbackQueryHandler(handle_quality_choice, pattern="^quality_"))
+    
+    print("Бот запущен...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
