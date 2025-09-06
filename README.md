@@ -59,3 +59,4 @@ It’s a clean way to build community, reduce abuse, and keep the bot sustainabl
 ---
 
 If you need, I can adapt this into a full README with shields, screenshots/GIFs, and a polished “Quick Start” (without placeholders) — just say the word, and I’ll include concrete env names and example configs.
+git add --all -- ':!.env' ':!bot.log' ':!.GamingRoot'
