@@ -31,9 +31,6 @@ def download_video(url: str, quality: str) -> str:
         "quiet": True,
         "noplaylist": True,
         "max_filesize": config.MAX_FILE_SIZE,
-        "postprocessor_args": {
-            "default": ["-threads", "4"]
-        }
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
