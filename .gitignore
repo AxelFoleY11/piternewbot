@@ -4,3 +4,4 @@
 echo ".env" >> .gitignore
 echo ".env.*" >> .gitignore
 echo "*.env" >> .gitignore
+git add .gitignore
