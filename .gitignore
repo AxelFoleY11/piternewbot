@@ -1,0 +1,12 @@
+# .gitignore
+.env
+downloads/
+__pycache__/
+*.pyc
+*.log
+venv/
+.env.local
+.env.prod
+*.mp4
+*.webm
+*.part
