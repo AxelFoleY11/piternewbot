@@ -1,4 +1,3 @@
-python bot.py
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -99,7 +98,6 @@ async def handle_quality_choice(update: Update, context: CallbackContext):
     quality = data[1]
     url = "_".join(data[2:])
     
-    # Повторная проверка подписки
     if not await utils.check_subscription(query.from_user.id, context):
         await query.answer("❌ Вы отписались от каналов!", show_alert=True)
         return
@@ -108,7 +106,6 @@ async def handle_quality_choice(update: Update, context: CallbackContext):
     await query.edit_message_text(f"🔄 <b>Скачиваю видео в {quality}p...</b>", parse_mode="HTML")
     
     try:
-        # Создаем папку downloads если её нет
         os.makedirs("downloads", exist_ok=True)
         
         file_path = utils.download_video(url, quality)
@@ -130,7 +127,6 @@ async def handle_quality_choice(update: Update, context: CallbackContext):
         await query.edit_message_text(error_msg)
         logger.error(f"Error downloading video: {e}")
         
-        # Отправка ошибки админу
         try:
             await context.bot.send_message(
                 config.ADMIN_ID,
@@ -143,7 +139,6 @@ async def handle_quality_choice(update: Update, context: CallbackContext):
 def main():
     app = Application.builder().token(config.TOKEN).build()
     
-    # Обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
