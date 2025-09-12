@@ -1,207 +1,187 @@
-
+# bot.py
 # -*- coding: utf-8 -*-
+import os
+import asyncio
+import logging
+import traceback
+
 from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    ContextTypes,
     filters,
-    CallbackContext
 )
+
 import config
 import utils
-import os
-import re
-import logging
 
-# Настройка логирования
+# --- Логирование ---
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-def is_valid_url(url: str) -> bool:
-    """Проверяет валидность URL"""
-    patterns = [
-        # YouTube
-        r'(https?://)?(www\.)?(youtube\.com|youtu\.be)/(watch\?v=|embed/|v/|.+?v=)([a-zA-Z0-9_-]{11})',
-        # TikTok конкретные видео
-        r'(https?://)?(www\.|m\.|vm\.)?tiktok\.com/.+?/video/\d+',
-        r'(https?://)?(www\.|m\.|vm\.)?tiktok\.com/.+?/v/\d+',
-        r'(https?://)?(vm\.|m\.)?tiktok\.com/\w+/',
-        # Instagram
-        r'(https?://)?(www\.)?instagram\.com/(p|reel)/([a-zA-Z0-9_-]+)/',
-        # Другие платформы
-        r'(https?://)?(www\.)?vk\.com/video(-?\d+_\d+)',
-        r'(https?://)?(www\.)?dailymotion\.com/video/([a-zA-Z0-9]+)',
-        r'(https?://)?(www\.)?vimeo\.com/([0-9]+)'
-    ]
-    
-    # Проверяем что это не главная страница
-    if any(url.startswith(base) for base in [
-        'https://www.tiktok.com/',
-        'https://tiktok.com/',
-        'https://www.instagram.com/',
-        'https://instagram.com/',
-        'https://www.youtube.com/',
-        'https://youtube.com/'
-    ]) and '/video/' not in url and '/watch?' not in url and '/p/' not in url:
-        return False
-    
-    return any(re.match(pattern, url) for pattern in patterns)
 
-async def start(update: Update, context: CallbackContext):
-    """Обработчик команды /start"""
+# --- Команды ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    logger.info(f"Получена команда /start от {user.id}")
-    
     if await utils.check_subscription(user.id, context):
         await update.message.reply_text(
-            "🎬 <b>Добро пожаловать в видео-бот!</b>\n\n"
-            "Отправьте ссылку на видео с одной из поддерживаемых платформ:\n"
-            "YouTube, TikTok, Instagram, VK, Dailymotion, Vimeo\n\n"
-            "<b>Примеры рабочих ссылок:</b>\n"
-            "• YouTube: https://youtube.com/watch?v=...\n"
-            "• TikTok: https://tiktok.com/@user/video/123...\n"
-            "• Instagram: https://instagram.com/p/...",
-            parse_mode="HTML"
+            "🎬 Привет! Отправь ссылку на видео (YouTube, Shorts, TikTok, Instagram, VK, Vimeo, Dailymotion)."
         )
     else:
         await update.message.reply_text(
-            "📢 <b>Для использования бота подпишитесь на наши каналы:</b>",
+            "📢 Для использования бота подпишитесь на наши каналы:",
             reply_markup=utils.subscription_keyboard(),
-            parse_mode="HTML"
         )
 
-async def check_subscription_callback(update: Update, context: CallbackContext):
-    """Обработчик проверки подписки"""
-    query = update.callback_query
-    await query.answer()
-    
-    if await utils.check_subscription(query.from_user.id, context):
-        await query.edit_message_text(
-            "✅ <b>Подписка подтверждена!</b>\n\n"
-            "Отправьте ссылку на видео:",
-            parse_mode="HTML"
-        )
-    else:
-        await query.answer("❌ Вы подписаны не на все каналы!", show_alert=True)
 
-async def handle_message(update: Update, context: CallbackContext):
-    """Обработчик текстовых сообщений"""
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Отправь ссылку на видео — бот предложит качества и скачает mp4.\n\n"
+        "✅ Поддерживается:\n"
+        "• YouTube (включая Shorts, youtu.be)\n"
+        "• TikTok (включая vm.tiktok.com)\n"
+        "• Instagram (p, reel, tv)\n"
+        "• VK, Vimeo, Dailymotion\n\n"
+        "❌ Не поддерживаются: профили, плейлисты, поиск."
+    )
+
+
+# --- Обработка сообщений ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    text = update.message.text.strip()
-    
+    text = (update.message.text or "").strip()
+
+    # Проверка подписки
     if not await utils.check_subscription(user.id, context):
         await update.message.reply_text(
-            "❌ <b>Доступ запрещен!</b>\n\n"
-            "Подпишитесь на все каналы для использования бота:",
+            "❌ Доступ ограничен — подпишитесь на наши каналы:",
             reply_markup=utils.subscription_keyboard(),
-            parse_mode="HTML"
         )
         return
-    
-    if is_valid_url(text):
+
+    # Нормализация ссылки (обрабатывает shorts, youtu.be и т.д.)
+    norm_url = utils.normalize_video_url(text)
+    if not norm_url:
         await update.message.reply_text(
-            "🎬 <b>Выберите качество видео:</b>",
-            reply_markup=utils.quality_keyboard(text),
-            parse_mode="HTML"
-        )
-    else:
-        await update.message.reply_text(
-            "⚠️ <b>Неверная ссылка!</b>\n\n"
-            "<b>Поддерживаемые форматы:</b>\n"
+            "⚠️ Неверная ссылка!\n\n"
+            "Поддерживаемые форматы:\n"
             "• YouTube: https://youtube.com/watch?v=...\n"
+            "• Shorts / youtu.be\n"
             "• TikTok: https://tiktok.com/@user/video/123...\n"
-            "• Instagram: https://instagram.com/p/...\n\n"
-            "<b>Не принимаются:</b> главные страницы, профили, поиск",
-            parse_mode="HTML"
+            "• Instagram: https://instagram.com/p/... или /reel/...\n\n"
+            "❌ Не принимаются: главные страницы, профили, поиск."
+        )
+        return
+
+    try:
+        # Генерация клавиатуры в пуле, т.к. yt-dlp может быть блокирующим.
+        loop = asyncio.get_running_loop()
+        kb = await loop.run_in_executor(None, utils.quality_keyboard, norm_url)
+        await update.message.reply_text("🎬 Выберите качество:", reply_markup=kb)
+    except Exception as e:
+        logger.error(f"Ошибка при создании клавиатуры: {e}")
+        await update.message.reply_text("⚠️ Не удалось определить доступные качества.")
+        await notify_admin(
+            context,
+            f"Ошибка quality_keyboard у {user.id} @{getattr(user, 'username', None)}:\n{e}\n{traceback.format_exc()}",
         )
 
-async def handle_quality_choice(update: Update, context: CallbackContext):
-    """Обработчик выбора качества"""
+
+# --- Подтверждение подписки ---
+async def check_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    data = query.data.split("_")
-    quality = data[1]
-    url = "_".join(data[2:])
-    
-    # Повторная проверка подписки
-    if not await utils.check_subscription(query.from_user.id, context):
-        await query.answer("❌ Вы отписались от каналов!", show_alert=True)
+    await query.answer()
+    if await utils.check_subscription(query.from_user.id, context):
+        await query.edit_message_text("✅ Подписка подтверждена! Отправьте ссылку на видео.")
+    else:
+        await query.answer("❌ Вы не подписаны на все каналы.", show_alert=True)
+
+
+# --- Скачивание видео ---
+async def handle_quality_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split("_", 2)
+    if len(parts) < 3:
+        await query.edit_message_text("⚠️ Некорректный запрос.")
         return
-    
-    await query.answer("⏳ Начинаю загрузку...")
-    await query.edit_message_text(f"🔄 <b>Скачиваю видео в {quality}p...</b>", parse_mode="HTML")
-    
+
+    _, quality, video_id = parts
+    url = utils.URL_CACHE.get(video_id)
+    if not url:
+        await query.edit_message_text("⚠️ Сессия устарела. Пришлите ссылку ещё раз.")
+        return
+
+    # Проверка подписки
+    if not await utils.check_subscription(query.from_user.id, context):
+        await query.edit_message_text("❌ Вы отписались от каналов — доступ закрыт.")
+        return
+
+    await query.edit_message_text(f"⏳ Скачиваю в {quality}p...")
+
     try:
-        # Создаем папку downloads если её нет
-        os.makedirs("downloads", exist_ok=True)
-        
-        file_path = utils.download_video(url, quality)
-        
-        if os.path.getsize(file_path) > config.MAX_FILE_SIZE:
-            os.remove(file_path)
-            raise ValueError("Файл превышает 50MB")
-        
-        await context.bot.send_video(
-            chat_id=query.message.chat_id,
-            video=open(file_path, "rb"),
-            caption=f"✅ Видео {quality}p успешно скачано!",
-            supports_streaming=True,
-            read_timeout=60,
-            write_timeout=60,
-            connect_timeout=60
-        )
-        os.remove(file_path)
-        
-    except Exception as e:
-        error_msg = f"❌ Ошибка: {str(e)}"
-        await query.edit_message_text(error_msg)
-        logger.error(f"Error downloading video: {e}")
-        
-        # Отправка ошибки админу
+        loop = asyncio.get_running_loop()
+        file_path = await loop.run_in_executor(None, utils.download_video, url, quality)
+
+        if not os.path.exists(file_path):
+            await query.edit_message_text("❌ Ошибка: файл не найден.")
+            await notify_admin(context, f"Файл не найден для {url}")
+            return
+
+        with open(file_path, "rb") as f:
+            await query.message.reply_video(video=f, caption=f"✅ Ваше видео {quality}p")
+
         try:
-            await context.bot.send_message(
-                config.ADMIN_ID,
-                f"Ошибка у @{query.from_user.username}:\n{error_msg}\n\nURL: {url}"
-            )
-        except:
+            os.remove(file_path)
+        except Exception:
             pass
 
-def main():
-    """Основная функция"""
-    try:
-        # Проверка токена
-        if not config.TOKEN or config.TOKEN == "your_bot_token_here":
-            logger.error("❌ Токен не настроен! Проверьте файл .env")
-            return
-        
-        logger.info(f"✅ Токен получен: {config.TOKEN[:10]}...")
-        
-        # Создаем приложение с увеличенными таймаутами
-        app = Application.builder()\
-            .token(config.TOKEN)\
-            .read_timeout(30)\
-            .connect_timeout(30)\
-            .pool_timeout(30)\
-            .build()
-        
-        # Добавляем обработчики
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
-        app.add_handler(CallbackQueryHandler(handle_quality_choice, pattern="^quality_"))
-        
-        logger.info("✅ Бот запущен! Нажмите Ctrl+C для остановки.")
-        print("✅ Бот запущен! Проверьте Telegram.")
-        
-        app.run_polling()
-        
+        await query.edit_message_text("✅ Видео отправлено.")
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска: {e}")
-        print(f"❌ Ошибка: {e}")
+        logger.error(f"Ошибка загрузки: {e}")
+        await query.edit_message_text("⚠️ Не удалось скачать видео.")
+        await notify_admin(
+            context,
+            f"Ошибка скачивания у {query.from_user.id} @{getattr(query.from_user, 'username', None)}:\n"
+            f"URL: {url}\nError: {e}\n{traceback.format_exc()}",
+        )
+
+
+# --- Уведомление админа ---
+async def notify_admin(context: ContextTypes.DEFAULT_TYPE, text: str):
+    try:
+        admin = getattr(config, "ADMIN_ID", 0)
+        if admin and int(admin) != 0:
+            await context.bot.send_message(chat_id=int(admin), text=f"⚠️ BOT ERROR\n{text}")
+    except Exception as e:
+        logger.error(f"Не удалось уведомить админа: {e}")
+
+
+# --- Запуск ---
+def main():
+    token = getattr(config, "TOKEN", None)
+    if not token:
+        logger.error("❌ Токен не настроен! Проверьте .env")
+        print("❌ Токен не настроен! Проверьте .env")
+        return
+
+    app = Application.builder().token(token).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
+    app.add_handler(CallbackQueryHandler(handle_quality_choice, pattern="^quality_"))
+
+    logger.info("✅ Бот запущен.")
+    app.run_polling()
+
 
 if __name__ == "__main__":
     main()
