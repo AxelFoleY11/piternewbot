@@ -1,22 +1,29 @@
-
 import os
 from dotenv import load_dotenv
-import time
+import shutil
 
 # Загружаем переменные из .env
-load_dotenv()
+ENV_PATH = "/root/piternewbot/.env"
+if os.path.exists(ENV_PATH):
+    load_dotenv(ENV_PATH)
+else:
+    load_dotenv()
 
 # Конфигурация бота
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID', 123456789))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = BOT_TOKEN  # ← добавлено для совместимости со старым кодом
 
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", str(2000 * 1024 * 1024)))  # 2GB
+
+# Каналы
 CHANNELS = ["@it_begin", "@it_begin_books", "@ITtechnologyPCNeuralnetworks"]
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 # Автоматическое определение пути к FFmpeg
-import shutil
-FFMPEG_PATH = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
+FFMPEG_PATH = FFMPEG_PATH = FFMPEG_PATH = r"C:\ffmpeg-2025-09-08-git-45db6945e9-essentials_build\bin\ffmpeg.exe"
 
-# Кеш подписок
-SUBSCRIPTION_CACHE = {}
-CACHE_TIMEOUT = 300  # 5 минут
+
+
+# Проверка токена при запуске
+if not BOT_TOKEN:
+    print("⚠️ BOT_TOKEN не найден! Проверь .env")
