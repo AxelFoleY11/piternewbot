@@ -262,9 +262,51 @@ def normalize_video_url(url: str) -> str | None:
 
 # --- доступные качества ---
 def get_available_qualities(url: str) -> list[int]:
-    # Всегда возвращаем все три качества
-    # yt-dlp автоматически выберет ближайшее доступное качество
-    return [480, 720, 1080]
+    """
+    Получить список доступных качеств для видео
+    """
+    try:
+        # Создаем временный экземпляр yt-dlp для получения информации
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+            "listformats": True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info or 'formats' not in info:
+                # Если не удалось получить информацию, возвращаем стандартные качества
+                return [480, 720, 1080]
+            
+            # Извлекаем доступные разрешения
+            available_heights = set()
+            for fmt in info['formats']:
+                if fmt.get('height') and fmt.get('vcodec') != 'none':
+                    available_heights.add(fmt['height'])
+            
+            # Сортируем и фильтруем качества
+            heights = sorted([h for h in available_heights if h >= 360], reverse=True)
+            
+            # Возвращаем до 3 лучших качеств
+            if not heights:
+                return [480, 720, 1080]  # Fallback
+            
+            # Выбираем лучшие доступные качества
+            selected = []
+            for target in [1080, 720, 480]:
+                for height in heights:
+                    if height >= target and target not in selected:
+                        selected.append(target)
+                        break
+            
+            return selected if selected else [heights[0]] if heights else [720]
+            
+    except Exception as e:
+        logger.warning(f"Не удалось получить доступные качества: {e}")
+        # Возвращаем стандартные качества в случае ошибки
+        return [480, 720, 1080]
 
 
 # --- скачивание видео ---
@@ -285,13 +327,15 @@ def download_video(url: str, quality: str, user_id: int = None) -> str:
     os.makedirs("downloads", exist_ok=True)
 
     ydl_opts = {
-        "format": f"best[height<={height}]/best",
+        # Улучшенная логика выбора качества - сначала ищем точное качество, потом лучшее доступное
+        "format": f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/bestvideo+bestaudio/best",
         "outtmpl": "downloads/%(id)s_%(height)sp.%(ext)s",
         "merge_output_format": "mp4",
         "ffmpeg_location": config.FFMPEG_PATH,
         "noplaylist": True,
         "quiet": True,
-        "max_filesize": config.MAX_FILE_SIZE,
+        # Увеличиваем лимит размера файла для лучшего качества
+        "max_filesize": config.MAX_FILE_SIZE * 2,  # Удваиваем лимит для качества
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -316,6 +360,9 @@ def download_video(url: str, quality: str, user_id: int = None) -> str:
         "no_color": True,
         "prefer_insecure": False,
         "legacy_server_connect": True,
+        # Дополнительные настройки для лучшего качества
+        "format_sort": ["res", "ext:mp4:m4a", "proto:https", "proto:http"],
+        "format_sort_force": True,
     }
 
     try:
@@ -349,7 +396,8 @@ def download_video(url: str, quality: str, user_id: int = None) -> str:
         try:
             alt_opts = ydl_opts.copy()
             alt_opts.update({
-                "format": f"best[height<={height}]/bestvideo[height<={height}]+bestaudio/best",
+                # Более агрессивная стратегия для альтернативного метода
+                "format": f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best",
                 "extract_flat": False,
                 "writethumbnail": False,
                 "writeinfojson": False,
@@ -357,6 +405,9 @@ def download_video(url: str, quality: str, user_id: int = None) -> str:
                 "no_color": True,
                 "prefer_insecure": True,
                 "legacy_server_connect": False,
+                # Дополнительные настройки для альтернативного метода
+                "format_sort": ["res", "ext:mp4:m4a", "proto:https", "proto:http"],
+                "format_sort_force": True,
             })
             
             with yt_dlp.YoutubeDL(alt_opts) as ydl:
@@ -413,7 +464,9 @@ def quality_keyboard(url: str, user_id: int):
     buttons = []
     row = []
     for q in qualities:
-        row.append(InlineKeyboardButton(f"📹 {q}p", callback_data=f"quality_{q}_{video_id}"))
+        # Добавляем эмодзи в зависимости от качества
+        emoji = "🔥" if q >= 1080 else "⭐" if q >= 720 else "📹"
+        row.append(InlineKeyboardButton(f"{emoji} {q}p", callback_data=f"quality_{q}_{video_id}"))
     buttons.append(row)
     
     return InlineKeyboardMarkup(buttons), remaining
