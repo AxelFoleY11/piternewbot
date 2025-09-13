@@ -18,3 +18,11 @@ FFMPEG_PATH = "ffmpeg"
 
 # Таймаут кэша подписки
 CACHE_TIMEOUT = 300
+
+# Ограничения скачиваний
+MAX_DAILY_DOWNLOADS = 5
+
+# Ограничения для Cloud MSK 40 (2 CPU, 2GB RAM, 40GB SSD)
+MAX_CONCURRENT_DOWNLOADS = 2  # Максимум 2 одновременных скачивания
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB вместо 500MB
+CLEANUP_INTERVAL = 3600  # Очистка временных файлов каждый час
